@@ -96,6 +96,7 @@ import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import CannedResponsePicker from '@/components/chat/CannedResponsePicker.vue'
 import PreviewButtonGroup from '@/components/chatbot/flow-preview/PreviewButtonGroup.vue'
 import TemplatePicker from '@/components/chat/TemplatePicker.vue'
+import MediaViewerDialog from '@/components/chat/MediaViewerDialog.vue'
 import ContactInfoPanel from '@/components/chat/ContactInfoPanel.vue'
 import ConversationNotes from '@/components/chat/ConversationNotes.vue'
 import CallButton from '@/components/calling/CallButton.vue'
@@ -149,6 +150,10 @@ const filePreviewUrl = ref<string | null>(null)
 const isMediaDialogOpen = ref(false)
 const mediaCaption = ref('')
 const isUploadingMedia = ref(false)
+
+// In-app media viewer (lightbox) state — see MediaViewerDialog.vue
+const mediaViewerOpen = ref(false)
+const mediaViewerIndex = ref(0)
 
 // Cache for media blob URLs (message_id -> blob URL)
 
@@ -1526,11 +1531,34 @@ function getMediaUrl(message: Message): string {
   return `${basePath}/api/media/${message.id}`
 }
 
+// Every media attachment in the open conversation, in chronological order, that
+// the in-app viewer can show (images, stickers, video, documents/PDF, plus
+// template header media). This is the gallery the lightbox pages through.
+const viewableMedia = computed(() =>
+  contactsStore.messages.filter(
+    m =>
+      !!m.media_url &&
+      (['image', 'sticker', 'video', 'document'].includes(m.message_type) ||
+        m.message_type === 'template'),
+  ),
+)
+
+// Only PDFs gain anything from the lightbox — docx/xlsx/zip have no inline
+// viewer, so routing them through the modal would just add a click before the
+// same download. Those bubbles keep their one-click download link; the viewer
+// still shows them (with a download card) when paging through the gallery.
+function isPreviewableDocument(message: Message): boolean {
+  const mime = message.media_mime_type || ''
+  const name = (message.media_filename || '').toLowerCase()
+  return mime.includes('pdf') || name.endsWith('.pdf')
+}
+
+// Open the in-app viewer at the clicked attachment instead of a new browser tab.
 function openMediaPreview(message: Message) {
-  const url = getMediaUrl(message)
-  if (url) {
-    window.open(url, '_blank')
-  }
+  const idx = viewableMedia.value.findIndex(m => m.id === message.id)
+  if (idx === -1) return
+  mediaViewerIndex.value = idx
+  mediaViewerOpen.value = true
 }
 
 function handleImageError(event: Event) {
@@ -2082,6 +2110,15 @@ async function sendMediaMessage() {
                     controls
                     class="max-w-[280px] max-h-[300px] rounded-lg"
                   />
+                  <button
+                    v-else-if="isPreviewableDocument(message)"
+                    type="button"
+                    class="flex items-center gap-2 px-3 py-2 bg-background/50 rounded-lg hover:bg-background/80 transition-colors cursor-pointer text-left w-full"
+                    @click="openMediaPreview(message)"
+                  >
+                    <FileText class="h-5 w-5 text-muted-foreground" />
+                    <span class="text-sm truncate max-w-[200px]">{{ message.media_filename || 'Document' }}</span>
+                  </button>
                   <a
                     v-else
                     :href="getMediaUrl(message)"
@@ -2132,7 +2169,19 @@ async function sendMediaMessage() {
                 </div>
                 <!-- Document message -->
                 <div v-else-if="message.message_type === 'document' && message.media_url" class="mb-2">
+                  <button
+                    v-if="isPreviewableDocument(message)"
+                    type="button"
+                    class="flex items-center gap-2 px-3 py-2 bg-background/50 rounded-lg hover:bg-background/80 transition-colors cursor-pointer text-left w-full"
+                    @click="openMediaPreview(message)"
+                  >
+                    <FileText class="h-5 w-5 text-muted-foreground" />
+                    <span class="text-sm truncate max-w-[200px]">
+                      {{ message.media_filename || 'Document' }}
+                    </span>
+                  </button>
                   <a
+                    v-else
                     :href="getMediaUrl(message)"
                     :download="message.media_filename || 'document'"
                     class="flex items-center gap-2 px-3 py-2 bg-background/50 rounded-lg hover:bg-background/80 transition-colors"
@@ -2770,6 +2819,13 @@ async function sendMediaMessage() {
 
     <!-- Add Contact Dialog -->
     <CreateContactDialog v-model:open="isAddContactOpen" @created="onContactCreated" />
+
+    <!-- In-app media viewer (lightbox) -->
+    <MediaViewerDialog
+      v-model:open="mediaViewerOpen"
+      v-model:index="mediaViewerIndex"
+      :items="viewableMedia"
+    />
   </div>
 </template>
 
