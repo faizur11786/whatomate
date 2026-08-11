@@ -5,8 +5,10 @@
 
 services:
   app:
+    # Coolify sets --project-directory to the repo root, so context is "."
+    # (not ".." — that resolves to /artifacts and breaks the build).
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     ports:
