@@ -1,0 +1,21 @@
+# Coolify production — app only (use existing Coolify Postgres + Redis).
+# Set env vars in Coolify UI from docker/.env.coolify.example
+# Attach this resource to the same Docker network as Postgres & Redis.
+# Domain → port 8080 · healthcheck GET /ready
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080"
+    volumes:
+      - whatomate-uploads:/app/uploads
+      - whatomate-audio:/app/audio
+    command: ["server", "-migrate", "-config", "/app/config.toml"]
+
+volumes:
+  whatomate-uploads:
+  whatomate-audio:
